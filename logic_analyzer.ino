@@ -72,6 +72,11 @@
  * Makefile.
  */
 
+ /*
+  * Even though the STM32 runs at 72Mhz, we can only achive a 5Mhz sampling rate.
+  * Accessing the registry just takes too long with current Arduino core implementations.
+  */
+
 void triggerMicro(void);
 void captureMicro(void);
 void captureMilli(void);
@@ -82,13 +87,7 @@ void get_metadata(void);
 void debugprint(void);
 void debugdump(void);
 void prettydump(void);
-void captureInline4mhz(void);
-void captureInline2mhz(void);
-
-/*
- * Arduino device profile:      ols.profile-agla.cfg
- * Arduino Mega device profile: ols.profile-aglam.cfg
- */
+void captureInline5mhz(void);
 
 #define CHANPIN GPIOB->regs->IDR >> 8
 #define ledPin PC13
@@ -114,11 +113,6 @@ void captureInline2mhz(void);
 /* extended commands -- self-test unsupported, but metadata is returned. */
 #define SUMP_SELF_TEST 0x03
 #define SUMP_GET_METADATA 0x04
-
-/* ATmega168:  532 (or lower)
- * ATmega328:  1024 (or lower)
- * ATmega2560: 7168 (or lower)
- */
 
 #define DEBUG_CAPTURE_SIZE 16384
 #define CAPTURE_SIZE 16384
@@ -155,7 +149,7 @@ unsigned int readCount = MAX_CAPTURE_SIZE;
 unsigned int delayCount = 0;
 unsigned int trigger = 0;
 unsigned int trigger_values = 0;
-unsigned int useMicro = 0;
+unsigned int useTimebase = 0;
 unsigned int delayTime = 0;
 unsigned long divider = 0;
 boolean rleEnabled = 0;
@@ -208,23 +202,11 @@ void loop()
         logicdata[i] = 0;
       }
       /*
-         * depending on the sample rate we need to delay in microseconds
-       * or milliseconds.  We can't do the complex trigger at 1MHz
-       * so in that case (delayTime == 1 and triggers enabled) use
-       * captureMicro() instead of triggerMicro().
+       * depending on the sample rate we need to delay in microseconds,
+       * milliseconds or nanoseconds.
        */
 
-      if (divider == 24) {
-        /* 4.0MHz */
-        captureInline4mhz();
-      }
-      else if (divider == 49) {
-        /* 2.0MHz */
-#if !defined(__AVR_ATmega168__)
-        captureInline2mhz();
-#endif
-      }
-      else if (useMicro) {
+      if (useTimebase == 1) {
         if (trigger && (delayTime != 1)) {
           triggerMicro();
         }
@@ -232,8 +214,16 @@ void loop()
           captureMicro();
         }
       }
-      else {
+      else if (useTimebase == 0) {
         captureMilli();
+      }
+      else if (useTimebase == 2)
+      {
+        captureNano();
+      }
+      else
+      {
+        return;
       }
       break;
     case SUMP_TRIGGER_MASK:
@@ -315,7 +305,7 @@ void loop()
 #endif /* DEBUG */
       Serial.println("2 = print data buffer");
       Serial.println("3 = pretty print buffer");
-      Serial.println("4 = capture at 4MHz");
+      Serial.println("4 = capture at 5MHz");
       Serial.println("5 = capture at 1MHz");
       Serial.println("6 = capture at 500KHz");
       break;
@@ -355,11 +345,12 @@ void loop()
       break;
     case '4':
       /*
-         * This runs a sample capture at 4MHz.
+       * This runs a sample capture at 5MHz.
        */
-      captureInline4mhz();
+      delayTime = 200;
+      captureNano();
       Serial.println("");
-      Serial.println("4MHz capture done.");
+      Serial.println("5MHz capture done.");
       break;
     case '5':
       /*
@@ -376,7 +367,7 @@ void loop()
          * This runs a sample capture at 500KHz.
        * delayTime = 2ms for 500KHz.
        */
-      delayTime = 1;
+      delayTime = 2;
       captureMicro();
       Serial.println("");
       Serial.println("500KHz capture done.");
@@ -437,6 +428,80 @@ void getCmd() {
  *
  */
 
+void captureNano()
+{
+  unsigned int i;
+  /*
+   * basic trigger, wait until all trigger conditions are met on port.
+   * this needs further testing, but basic tests work as expected.
+   */
+  if (trigger) {
+    while ((trigger_values ^ CHANPIN) & trigger);
+  }
+  
+  /*
+   * toggle pin a few times to activate trigger for debugging.
+   * this is used during development to measure the sample intervals.
+   * it is best to just leave the toggling in place so we don't alter
+   * any timing unexpectedly.
+   * Arduino digital pin 8 is being used here.
+   */
+  DEBUG_ENABLE;
+#ifdef DEBUG
+  DEBUG_ON;
+  delayMicroseconds(20);
+  DEBUG_OFF;
+  delayMicroseconds(20);
+  DEBUG_ON;
+  delayMicroseconds(20);
+  DEBUG_OFF;
+  delayMicroseconds(20);
+#endif
+
+  if (delayTime == 1000) {
+    /*
+     * 1MHz sample rate = 1 uS delay so we can't use delayMicroseconds
+     * since our loop takes some time.  The delay is padded out by hand.
+     */
+    DEBUG_ON; /* debug timing measurement */
+    for (i = 0 ; i < readCount; i++) {
+      logicdata[i] = CHANPIN;
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+    }
+    DEBUG_OFF; /* debug timing measurement */
+  }
+  else if (delayTime == 500)
+  {
+    DEBUG_ON; /* debug timing measurement */
+    for (i = 0 ; i < readCount; i++) {
+      logicdata[i] = CHANPIN;
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+    }
+    DEBUG_OFF; /* debug timing measurement */    
+  }
+  else if (delayTime == 200)
+  {
+    captureInline5mhz();
+  }
+  else
+  {
+    return;
+  }
+  
+  /*
+   * dump the samples back to the SUMP client.  nothing special
+   * is done for any triggers, this is effectively the 0/100 buffer split.
+   */
+  for (i = 0 ; i < readCount; i++) {
+    Serial.write(logicdata[i]);
+  }    
+}
+
 void captureMicro() {
   unsigned int i;
 
@@ -474,51 +539,21 @@ void captureMicro() {
   delayMicroseconds(20);
 #endif
 
-  if (delayTime == 1) {
-    /*
-     * 1MHz sample rate = 1 uS delay so we can't use delayMicroseconds
-     * since our loop takes some time.  The delay is padded out by hand.
-     */
-    DEBUG_ON; /* debug timing measurement */
-    for (i = 0 ; i < readCount; i++) {
-      logicdata[i] = CHANPIN;
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-    }
-    DEBUG_OFF; /* debug timing measurement */
+  /*
+   * Even 500kHz works fine with delayMicroseconds on STM32
+   * with 30 NOPs of padding. (based on measured debug pin toggles with
+   * a better logic analyzer)
+   * start of real measurement
+   */
+  DEBUG_ON; /* debug timing measurement */
+  for (i = 0 ; i < readCount; i++) {
+    logicdata[i] = CHANPIN;
+    delayMicroseconds(delayTime - 1);
+    __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+    __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+    __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t");
   }
-  else if (delayTime == 2) {
-    /*
-     * 500KHz sample rate = 2 uS delay, still pretty fast so we pad this
-     * one by hand too.
-     */
-    DEBUG_ON; /* debug timing measurement */
-    for (i = 0 ; i < readCount; i++) {
-      logicdata[i] = CHANPIN;
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
-    }
-    DEBUG_OFF; /* debug timing measurement */
-  }
-  else {
-    /*
-     * not 1MHz or 500KHz; delayMicroseconds(delay - 1) works fine here
-     * with two NOPs of padding. (based on measured debug pin toggles with
-     * a better logic analyzer)
-     * start of real measurement
-     */
-    DEBUG_ON; /* debug timing measurement */
-    for (i = 0 ; i < readCount; i++) {
-      logicdata[i] = CHANPIN;
-      delayMicroseconds(delayTime - 1);
-      __asm__("nop\n\t""nop\n\t");
-    }
-    DEBUG_OFF; /* debug timing measurement */
-  }
+  DEBUG_OFF; /* debug timing measurement */
 
   /* re-enable interrupts now that we're done sampling. */
   //sei();
@@ -592,7 +627,6 @@ void captureMilli() {
     if (trigger) {
       while ((trigger_values ^ CHANPIN) & trigger);
     }
-
     for (i = 0 ; i < readCount; i++) {
       logicdata[i] = CHANPIN;
       delay(delayTime);
@@ -809,11 +843,15 @@ void triggerMicro() {
  */
 void setupDelay() {
   if (divider >= 1500000) {
-    useMicro = 0;
+    useTimebase = 0; // Milli
     delayTime = (divider + 1) / 100000;
   }
+  else if (divider <= 100) {
+    delayTime = (divider + 1) * 10;
+    useTimebase = 2; // Nano
+  }
   else {
-    useMicro = 1;
+    useTimebase = 1; // Micro
     delayTime = (divider + 1) / 100;
   }
 }
@@ -979,15 +1017,3 @@ void prettydump() {
   }
 }
 #endif /* DEBUG_MENU */
-
-
-
-
-
-
-
-
-
-
-
-
