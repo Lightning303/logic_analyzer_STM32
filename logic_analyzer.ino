@@ -86,46 +86,12 @@ void captureInline4mhz(void);
 void captureInline2mhz(void);
 
 /*
- * Should we use PORTD or PORTB?  (default is PORTB)
- * PORTD support with triggers seems to work but needs more testing.
- */
-//#define USE_PORTD 1
-
-/*
  * Arduino device profile:      ols.profile-agla.cfg
  * Arduino Mega device profile: ols.profile-aglam.cfg
  */
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-#define CHANPIN PINA
-#define CHAN0 22
-#define CHAN1 23
-#define CHAN2 24
-#define CHAN3 25
-#define CHAN4 26
-#define CHAN5 27
-#define CHAN6 28
-#define CHAN7 29
-#else
-#if defined(USE_PORTD)
-#define CHANPIN PIND
-#define CHAN0 2
-#define CHAN1 3
-#define CHAN2 4
-#define CHAN3 5
-#define CHAN4 6
-#define CHAN5 7
-#else
-#define CHANPIN PINB
-#define CHAN0 8
-#define CHAN1 9
-#define CHAN2 10
-#define CHAN3 11
-#define CHAN4 12
-/* Comment out CHAN5 if you don't want to use the LED pin for an input */
-#define CHAN5 13
-#endif /* USE_PORTD */
-#endif
-#define ledPin 13
+
+#define CHANPIN GPIOB->regs->IDR >> 8
+#define ledPin PC13
 
 /* XON/XOFF are not supported. */
 #define SUMP_RESET 0x00
@@ -153,32 +119,16 @@ void captureInline2mhz(void);
  * ATmega328:  1024 (or lower)
  * ATmega2560: 7168 (or lower)
  */
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-#define DEBUG_CAPTURE_SIZE 7168
-#define CAPTURE_SIZE 7168
-#elif defined(__AVR_ATmega32U4__)
-#define DEBUG_CAPTURE_SIZE 2048
-#define CAPTURE_SIZE 2048
-#elif defined(__AVR_ATmega328P__)
-#define DEBUG_CAPTURE_SIZE 1024
-#define CAPTURE_SIZE 1024
-#else
-#define DEBUG_CAPTURE_SIZE 532
-#define CAPTURE_SIZE 532
-#endif
 
-#ifdef USE_PORTD
-#define DEBUG_ENABLE DDRB = DDRB | B00000001
-#define DEBUG_ON PORTB = B00000001
-#define DEBUG_OFF PORTB = B00000000
-#else
-#define DEBUG_ENABLE DDRD = DDRD | B10000000
-#define DEBUG_ON PORTD = B10000000
-#define DEBUG_OFF PORTD = B00000000
-#endif /* USE_PORTD */
+#define DEBUG_CAPTURE_SIZE 16384
+#define CAPTURE_SIZE 16384
 
-//#define DEBUG_MENU
-//#define DEBUG
+#define DEBUG_ENABLE gpio_set_mode(GPIOA, 0, GPIO_OUTPUT_PP);
+#define DEBUG_ON GPIOA->regs->ODR = 0x01
+#define DEBUG_OFF GPIOA->regs->ODR = 0x00
+
+#define DEBUG_MENU
+#define DEBUG
 
 #ifdef DEBUG
 #define MAX_CAPTURE_SIZE DEBUG_CAPTURE_SIZE
@@ -222,47 +172,10 @@ void setup()
    */
   DEBUG_ENABLE; /* debug measurement pin */
 
-  pinMode(CHAN0, INPUT);
-  pinMode(CHAN1, INPUT);
-  pinMode(CHAN2, INPUT);
-  pinMode(CHAN3, INPUT);
-  pinMode(CHAN4, INPUT);
-#ifdef CHAN5
-  pinMode(CHAN5, INPUT);
-#endif
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-  pinMode(CHAN6, INPUT);
-  pinMode(CHAN7, INPUT);
-#else
-#ifndef CHAN5
-  pinMode(ledPin, OUTPUT);
-#endif
-#endif /* Mega */
-
-#if 0
-
-  /*
-   * This sets up timer2 at 100KHz to toggle a pin.  This is useful
-   * for debugging as it gives an internally precise signal source.
-   * This doesn't work on the Arduino Mega.  Use on the Uno or older.
-   * We're using the same clock source for the timer & our sampling.
-   */
-
-  /* Set OC2A (digital pin 11) to output so we can toggle it. */
-  pinMode(11, OUTPUT);
-
-  /* reset timer to zero */
-  TCNT2 = 0;
-  TCCR2A = 0;
-  TCCR2B = 0;
-  OCR2A = 0;
-
-  /* Set CTC mode and toggle on compare. */
-  TCCR2A = _BV (COM2A0) | _BV (WGM21);
-  /* 79 = 100KHz, 15 = 500KHz, 7 = 1MHz */
-  OCR2A = 79;
-  TCCR2B = _BV (CS20);
-#endif
+  for (byte i = 8; i < 16; i++)
+  {
+    gpio_set_mode(GPIOB, i, GPIO_INPUT_PD);
+  }
 }
 
 void loop()
@@ -329,11 +242,7 @@ void loop()
        * we can just use it directly as our trigger mask.
        */
       getCmd();
-#ifdef USE_PORTD
-      trigger = cmdBytes[0] << 2;
-#else
       trigger = cmdBytes[0];
-#endif
       break;
     case SUMP_TRIGGER_VALUES:
       /*
@@ -341,11 +250,7 @@ void loop()
        * defines whether we're looking for it to be high or low.
        */
       getCmd();
-#ifdef USE_PORTD
-      trigger_values = cmdBytes[0] << 2;
-#else
       trigger_values = cmdBytes[0];
-#endif
       break;
     case SUMP_TRIGGER_CONFIG:
       /* read the rest of the command bytes, but ignore them. */
@@ -548,7 +453,7 @@ void captureMicro() {
    * we're hand padding loops with NOP instructions so we absolutely
    * cannot have any interrupts firing.
    */
-  cli();
+  //cli();
 
   /*
    * toggle pin a few times to activate trigger for debugging.
@@ -616,18 +521,14 @@ void captureMicro() {
   }
 
   /* re-enable interrupts now that we're done sampling. */
-  sei();
+  //sei();
 
   /*
    * dump the samples back to the SUMP client.  nothing special
    * is done for any triggers, this is effectively the 0/100 buffer split.
    */
   for (i = 0 ; i < readCount; i++) {
-#ifdef USE_PORTD
-    Serial.write(logicdata[i] >> 2);
-#else
     Serial.write(logicdata[i]);
-#endif
   }
 }
 
@@ -698,11 +599,7 @@ void captureMilli() {
     }
   }
   for (i = 0 ; i < readCount; i++) {
-#ifdef USE_PORTD
-    Serial.write(logicdata[i] >> 2);
-#else
     Serial.write(logicdata[i]);
-#endif
   }
 }
 
@@ -725,7 +622,7 @@ void triggerMicro() {
    * we're hand padding loops with NOP instructions so we absolutely
    * cannot have any interrupts firing.
    */
-  cli();
+  //cli();
 
   /*
    * toggle pin a few times to activate trigger for debugging.
@@ -876,7 +773,7 @@ void triggerMicro() {
   }
 
   /* re-enable interrupts */
-  sei();
+  //sei();
 
   /*
    * trigger has fired and we have read delayCount of samples after the
@@ -892,11 +789,7 @@ void triggerMicro() {
     if (logicIndex >= readCount) {
       logicIndex = 0;
     }
-#ifdef USE_PORTD
-    Serial.write(logicdata[logicIndex++] >> 2);
-#else
     Serial.write(logicdata[logicIndex++]);
-#endif
   }
 }
 
@@ -933,13 +826,11 @@ void setupDelay() {
 void get_metadata() {
   /* device name */
   Serial.write((uint8_t)0x01);
-  Serial.write('A');
-  Serial.write('G');
-  Serial.write('L');
-  Serial.write('A');
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+  Serial.write('S');
+  Serial.write('T');
   Serial.write('M');
-#endif /* Mega */
+  Serial.write('3');
+  Serial.write('2');
   Serial.write('v');
   Serial.write('0');
   Serial.write((uint8_t)0x00);
@@ -949,26 +840,36 @@ void get_metadata() {
   Serial.write('0');
   Serial.write('.');
   Serial.write('1');
-  Serial.write('3');
   Serial.write((uint8_t)0x00);
 
   /* sample memory */
   Serial.write((uint8_t)0x21);
   Serial.write((uint8_t)0x00);
   Serial.write((uint8_t)0x00);
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-  /* 7168 bytes */
-  Serial.write((uint8_t)0x1C);
+
+  /* 16384 bytes */
+  Serial.write((uint8_t)0x40);
+  Serial.write((uint8_t)0x00); 
+
+  /* 8192 bytes */
+  Serial.write((uint8_t)0x20);
+  Serial.write((uint8_t)0x00); 
+
+  /* 4096 bytes */
+  Serial.write((uint8_t)0x10);
   Serial.write((uint8_t)0x00);
-#elif defined(__AVR_ATmega328P__)
+
+  /* 2048 bytes */
+  Serial.write((uint8_t)0x08);
+  Serial.write((uint8_t)0x00);
+
   /* 1024 bytes */
   Serial.write((uint8_t)0x04);
   Serial.write((uint8_t)0x00);
-#else
-  /* 532 bytes */
+
+  /* 512 bytes */
   Serial.write((uint8_t)0x02);
-  Serial.write((uint8_t)0x14);
-#endif /* Mega */
+  Serial.write((uint8_t)0x00);
 
   /* sample rate (4MHz) */
   Serial.write((uint8_t)0x23);
@@ -978,16 +879,7 @@ void get_metadata() {
   Serial.write((uint8_t)0x00);
 
   /* number of probes (6 by default on Arduino, 8 on Mega) */
-  Serial.write((uint8_t)0x40);
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
   Serial.write((uint8_t)0x08);
-#else
-#ifdef CHAN5
-  Serial.write((uint8_t)0x06);
-#else
-  Serial.write((uint8_t)0x05);
-#endif /* CHAN5 */
-#endif /* Mega */
 
   /* protocol version (2) */
   Serial.write((uint8_t)0x41);
@@ -1052,11 +944,7 @@ void debugdump() {
   Serial.print("\r\n");
 
   for (i = 0 ; i < MAX_CAPTURE_SIZE; i++) {
-#ifdef USE_PORTD
-    Serial.print(logicdata[i] >> 2, HEX);
-#else
     Serial.print(logicdata[i], HEX);
-#endif
     Serial.print(" ");
     if (j == 32) {
       Serial.print("\r\n");
@@ -1079,11 +967,7 @@ void prettydump() {
   Serial.print("\r\n");
 
   for (i = 0 ; i < 64; i++) {
-#ifdef USE_PORTD
-    k = logicdata[i] >> 2;
-#else
     k = logicdata[i];
-#endif
     for (j = 0; j < 8; j++) {
       if (k & 0x01)
         Serial.print("| ");

@@ -60,7 +60,7 @@ void captureInline4mhz() {
    * we cannot afford any timing interference so we absolutely
    * cannot have any interrupts firing.
    */
-  cli();
+  //cli();
 
   /*
    * toggle pin a few times to activate trigger for debugging.
@@ -14435,18 +14435,14 @@ void captureInline4mhz() {
   DEBUG_OFF; /* debug timing measurement */
 
   /* re-enable interrupts now that we're done sampling. */
-  sei();
+  //sei();
 
   /*
    * dump the samples back to the SUMP client.  nothing special
    * is done for any triggers, this is effectively the 0/100 buffer split.
    */
   for (i = 0 ; i < readCount; i++) {
-#ifdef USE_PORTD
-    Serial.write(logicdata[i] >> 2);
-#else
     Serial.write(logicdata[i]);
-#endif
   }
 }
 
