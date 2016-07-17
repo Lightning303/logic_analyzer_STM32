@@ -42,7 +42,7 @@
  * After the trigger fires (if it is enabled) the pins are sampled
  * at the appropriate rate.
  * 
- * We can only use 4096 datapoints at 5Mhz because of STM32s flash size.
+ * We can only use 2048 datapoints at 5Mhz because of STM32s flash size.
  *
  */
 

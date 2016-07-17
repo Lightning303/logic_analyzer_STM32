@@ -484,6 +484,15 @@ void captureNano()
     }
     DEBUG_OFF; /* debug timing measurement */    
   }
+  else if (delayTime == 330)
+  {
+    DEBUG_ON; /* debug timing measurement */
+    for (i = 0 ; i < readCount; i++) {
+      logicdata[i] = CHANPIN;
+      __asm__("nop\n\t""nop\n\t""nop\n\t""nop\n\t");
+    }
+    DEBUG_OFF; /* debug timing measurement */      
+  }
   else if (delayTime == 200)
   {
     captureInline5mhz();
