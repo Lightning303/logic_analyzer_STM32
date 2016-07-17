@@ -347,10 +347,10 @@ void loop()
       /*
        * This runs a sample capture at 5MHz.
        */
-      delayTime = 200;
+      delayTime = 160;
       captureNano();
       Serial.println("");
-      Serial.println("5MHz capture done.");
+      Serial.println("6.2MHz capture done.");
       break;
     case '5':
       /*
@@ -493,9 +493,9 @@ void captureNano()
     }
     DEBUG_OFF; /* debug timing measurement */      
   }
-  else if (delayTime == 200)
+  else if (delayTime == 160)
   {
-    captureInline5mhz();
+    captureInline6_2mhz();
   }
   else
   {
